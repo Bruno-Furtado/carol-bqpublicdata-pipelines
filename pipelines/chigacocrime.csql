@@ -1,0 +1,94 @@
+-- USED BY MORE THAN ONE CONNECTOR
+
+WITH
+
+lk_chigacocrime_counter AS (
+    SELECT
+        SAFE.DATETIME(TIMESTAMP_MICROS(SAFE_CAST(COALESCE(MAX(mdmStagingCounter), 0) AS INT64))) AS max
+    FROM
+        ingestion_chigacocrime
+),
+
+-- BQ PUBLIC DATA
+
+lk_bqpublicdata_chigaco_crime AS (
+    SELECT
+        *
+    FROM (
+        SELECT
+            mdmAuditId,
+            mdmBatchId,
+            mdmBatchIdSequence,
+            mdmCounterForEntity,
+            mdmEntityType,
+            mdmDeleted,
+            mdmId,
+            mdmTenantId,
+            arrest,
+            beat,
+            block,
+            case_number,
+            community_area,
+            date,
+            description,
+            district,
+            domestic,
+            fbi_code,
+            latitude,
+            location_description,
+            longitude,
+            primary_type,
+            unique_key,
+            ward,
+            x_coordinate,
+            y_coordinate,
+            year,
+            ROW_NUMBER() OVER (PARTITION BY mdmTenantId, mdmId ORDER BY mdmCounterForEntity DESC) AS ranking
+        FROM
+            ingestion_stg_bqpublicdata_chigaco_crime
+        WHERE
+            mdmCounterForEntity__DATETIME__ > (SELECT max FROM lk_chigacocrime_counter)
+    )
+    WHERE
+        ranking = 1
+),
+
+-- RESULT
+
+lk_chigaco_crime AS (
+    SELECT
+        stg.mdmDeleted,
+        SAFE_CAST(stg.arrest AS BOOL) AS arrest,
+        SAFE_CAST(stg.beat AS INT64) AS beat,
+        stg.block,
+        stg.case_number AS casenumber,
+        SAFE_CAST(stg.community_area AS INT64) AS communityarea,
+        SAFE_CAST(stg.date AS DATETIME) AS date,
+        stg.description,
+        SAFE_CAST(stg.district AS INT64) AS district,
+        SAFE_CAST(stg.domestic AS BOOL) AS domestic,
+        stg.fbi_code AS fbicode,
+        SAFE_CAST(stg.latitude AS FLOAT64) AS latitude,
+        stg.location_description AS locationdescription,
+        SAFE_CAST(stg.longitude AS FLOAT64) AS longitude,
+        stg.primary_type AS primarytype,
+        SAFE_CAST(stg.unique_key AS INT64) AS uniquekey,
+        SAFE_CAST(stg.ward AS INT64) AS ward,
+        SAFE_CAST(stg.x_coordinate AS FLOAT64) AS xcoordinate,
+        SAFE_CAST(stg.y_coordinate AS FLOAT64) AS ycoordinate,
+        SAFE_CAST(stg.year AS INT64) AS year,
+        --metadata-v2--
+    FROM
+        lk_bqpublicdata_chigaco_crime AS stg
+),
+
+chigaco_crime AS (
+    SELECT
+        * EXCEPT(mdmDeleted),
+        IFNULL(mdmDeleted OR (uniquekey IS NULL OR uniquekey = 0), FALSE) AS mdmDeleted
+    FROM
+        lk_chigaco_crime
+)
+
+SELECT *
+FROM chigaco_crime
